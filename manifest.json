@@ -1,0 +1,9 @@
+{
+	"id": "daily-note-archiver",
+	"name": "每日笔记归档器",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "每日笔记文件夹只保留最近7个文件，旧文件自动移至历史记录子文件夹",
+	"author": "Reasonix",
+	"isDesktopOnly": false
+}
