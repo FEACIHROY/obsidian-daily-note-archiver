@@ -216,3 +216,35 @@
 .dns-todo-source:hover {
     color: var(--text-accent);
 }
+
+/* ---- 待办 DDL ---- */
+
+.dns-todo-ddl-row {
+    width: 100%;
+    padding-left: 22px;
+    margin-top: 1px;
+}
+
+.dns-todo-ddl {
+    font-size: 0.75em;
+    cursor: pointer;
+    color: var(--text-accent);
+    padding: 1px 4px;
+    border-radius: 3px;
+    transition: background 0.15s;
+}
+
+.dns-todo-ddl:hover {
+    background: var(--background-modifier-hover);
+}
+
+.dns-todo-ddl-empty {
+    color: var(--text-faint);
+    font-style: italic;
+}
+
+.dns-todo-ddl-empty:hover {
+    color: var(--text-accent);
+}
+
+

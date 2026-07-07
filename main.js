@@ -249,9 +249,24 @@ class DailyNoteSidebarView extends ItemView {
     renderClockSection(parent) {
         if (!this.plugin.settings.showClock) return;
 
-        const section = parent.createDiv({ cls: "dns-section" });
+        const section = parent.createDiv({ cls: "dns-section dns-clock-section" });
+        this.clockSection = section;
         this.clockEl = section.createDiv({ cls: "dns-clock" });
         this.countdownEl = section.createDiv({ cls: "dns-countdown" });
+        // 点击倒计时文字切换显示/隐藏
+        this.countdownEl.style.cursor = "pointer";
+        this.countdownEl.title = "点击切换倒计时显示";
+        this._countdownHidden = false;
+        this.countdownEl.onclick = () => {
+            this._countdownHidden = !this._countdownHidden;
+            if (this._countdownHidden) {
+                this.countdownEl.textContent = "⏰ 点击显示";
+                this.countdownEl.style.opacity = "0.5";
+            } else {
+                this.countdownEl.style.opacity = "1";
+                this.updateClock();
+            }
+        };
         this.updateClock();
     }
 
@@ -261,7 +276,8 @@ class DailyNoteSidebarView extends ItemView {
         const now = moment();
         this.clockEl.textContent = now.format("HH:mm:ss");
 
-        // 倒计时
+        // 倒计时（隐藏状态时不更新时间文字）
+        if (this._countdownHidden) return;
         const endTime = this.plugin.settings.workEndTime; // "18:00"
         const end = moment(endTime, "HH:mm");
         let diff = end.diff(now);
@@ -320,18 +336,22 @@ class DailyNoteSidebarView extends ItemView {
         const month = date.month(); // 0-based
         const today = moment().format("YYYY-MM-DD");
 
-        // 获取该月所有有日记的日期
+        // 获取该月所有有日记的日期（含历史记录）
         const dailyPath = this.plugin.settings.dailyPath;
+        const historyPath = this.plugin.settings.historyPath;
         const dateFormat = this.plugin.settings.dateFormat;
         const existingDates = new Set();
-        if (this.app.vault.getAbstractFileByPath(dailyPath)) {
-            const files = this.app.vault.getMarkdownFiles()
-                .filter(f => f.path.startsWith(dailyPath + "/") && f.extension === "md");
-            for (const f of files) {
-                // 去掉 .md 后缀即日期字符串
-                existingDates.add(f.name.replace(/\.md$/, ""));
+        const scanFolder = (folder) => {
+            if (this.app.vault.getAbstractFileByPath(folder)) {
+                const files = this.app.vault.getMarkdownFiles()
+                    .filter(f => f.path.startsWith(folder + "/") && f.extension === "md");
+                for (const f of files) {
+                    existingDates.add(f.name.replace(/\.md$/, ""));
+                }
             }
-        }
+        };
+        scanFolder(dailyPath);
+        scanFolder(historyPath);
 
         // 星期标题
         const dayNames = ["日", "一", "二", "三", "四", "五", "六"];
@@ -382,9 +402,12 @@ class DailyNoteSidebarView extends ItemView {
     }
 
     async openDailyNote(dateStr) {
-        const dailyPath = this.plugin.settings.dailyPath;
-        const filePath = `${dailyPath}/${dateStr}.md`;
-        const file = this.app.vault.getAbstractFileByPath(filePath);
+        const dailyPath   = this.plugin.settings.dailyPath;
+        const historyPath = this.plugin.settings.historyPath;
+        let file = this.app.vault.getAbstractFileByPath(`${dailyPath}/${dateStr}.md`);
+        if (!file) {
+            file = this.app.vault.getAbstractFileByPath(`${historyPath}/${dateStr}.md`);
+        }
         if (file) {
             const leaf = this.app.workspace.getLeaf(false);
             await leaf.openFile(file);
@@ -446,13 +469,22 @@ class DailyNoteSidebarView extends ItemView {
                 // 匹配 - [ ] 或 * [ ]（未勾选）
                 const match = line.match(/^(\s*)[-*]\s+\[\s\]\s+(.+)$/);
                 if (match) {
+                    let taskText = match[2];
+                    // 提取末尾的 DDL： 📅 YYYY-MM-DD
+                    let ddl = null;
+                    const ddlMatch = taskText.match(/📅\s*(\d{4}-\d{2}-\d{2})\s*$/);
+                    if (ddlMatch) {
+                        ddl = ddlMatch[1];
+                        taskText = taskText.slice(0, -ddlMatch[0].length).trim();
+                    }
                     todos.push({
                         file: file,
                         line: i,
                         indent: match[1],
                         marker: line.startsWith(" ") ? "*" : "-",
                         raw: line,
-                        text: match[2],
+                        text: taskText,
+                        ddl: ddl,
                     });
                 }
             }
@@ -486,6 +518,15 @@ class DailyNoteSidebarView extends ItemView {
             // 任务文本（点开跳转到对应笔记）
             const textEl = item.createEl("span", { cls: "dns-todo-text", text: todo.text });
             textEl.onclick = () => this.openFileAtLine(todo.file, todo.line);
+
+            // DDL 显示 + 日历按钮
+            const ddlRow = item.createDiv({ cls: "dns-todo-ddl-row" });
+
+            const ddlEl = ddlRow.createEl("span", {
+                cls: "dns-todo-ddl" + (todo.ddl ? "" : " dns-todo-ddl-empty"),
+                text: todo.ddl ? `📅 ${todo.ddl}` : "设置截止日"
+            });
+            ddlEl.onclick = () => this.pickDateForTodo(todo);
 
             // 来源文件名
             const sourceEl = item.createEl("div", { cls: "dns-todo-source", text: `📎 ${todo.file.path}` });
@@ -525,6 +566,56 @@ class DailyNoteSidebarView extends ItemView {
         } catch (error) {
             console.error("❌ 切换待办失败：", error);
             new Notice("❌ 切换待办失败");
+        }
+    }
+
+    async pickDateForTodo(todo) {
+        // 创建临时的 date input 让用户选择
+        const input = document.createElement("input");
+        input.type = "date";
+        input.style.position = "fixed";
+        input.style.opacity = "0";
+        input.style.pointerEvents = "none";
+        document.body.appendChild(input);
+
+        // 如果有现有 DDL，设为默认值
+        if (todo.ddl) {
+            input.value = todo.ddl;
+        }
+
+        input.onchange = async () => {
+            const selectedDate = input.value; // "YYYY-MM-DD"
+            document.body.removeChild(input);
+            if (!selectedDate) return;
+            await this.saveTodoDDL(todo, selectedDate);
+        };
+
+        // 如果用户按 ESC 或失去焦点时没有选择，清理
+        input.onblur = () => {
+            setTimeout(() => { if (document.body.contains(input)) document.body.removeChild(input); }, 200);
+        };
+
+        // 触发日期选择器
+        input.showPicker();
+    }
+
+    async saveTodoDDL(todo, dateStr) {
+        try {
+            const content = await this.app.vault.read(todo.file);
+            const lines = content.split("\n");
+            const lineStr = lines[todo.line];
+            if (!lineStr) return;
+
+            // 去掉旧的 DDL 再追加新的
+            let newLine = lineStr.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*$/, "");
+            newLine = newLine + ` 📅 ${dateStr}`;
+
+            lines[todo.line] = newLine;
+            await this.app.vault.modify(todo.file, lines.join("\n"));
+            // modify 事件会自动刷新列表
+        } catch (error) {
+            console.error("❌ 设置 DDL 失败：", error);
+            new Notice("❌ 设置截止日失败");
         }
     }
 
