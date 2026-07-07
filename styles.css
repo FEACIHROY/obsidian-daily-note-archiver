@@ -1,1 +1,218 @@
-/* 每日笔记归档器 — 无 UI 元素，此文件仅占位 */
+/* ============================================================
+ * 每日笔记归档器 — 侧边栏样式
+ * ============================================================ */
+
+.daily-note-sidebar {
+    padding: 8px 12px;
+    user-select: none;
+}
+
+/* ---- 区域分隔 ---- */
+
+.dns-section {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.dns-section:last-child {
+    border-bottom: none;
+}
+
+.dns-section-title {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* ---- 时钟 ---- */
+
+.dns-clock {
+    font-size: 2.2em;
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-normal);
+    letter-spacing: 2px;
+}
+
+.dns-countdown {
+    font-size: 0.85em;
+    text-align: center;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- 日历 ---- */
+
+.dns-cal-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.dns-cal-title {
+    flex: 1;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.dns-cal-btn,
+.dns-cal-today-btn {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    cursor: pointer;
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+
+.dns-cal-btn:hover,
+.dns-cal-today-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.dns-cal-today-btn {
+    font-size: 0.75em;
+    padding: 2px 5px;
+}
+
+.dns-cal-grid {
+    width: 100%;
+}
+
+.dns-cal-row {
+    display: flex;
+    width: 100%;
+}
+
+.dns-cal-cell {
+    flex: 1;
+    text-align: center;
+    font-size: 0.8em;
+    padding: 3px 0;
+    box-sizing: border-box;
+}
+
+.dns-cal-dayname {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.75em;
+}
+
+.dns-cal-empty {
+    /* 空白占位 */
+}
+
+.dns-cal-day {
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.dns-cal-day:hover {
+    background: var(--background-modifier-hover);
+}
+
+.dns-cal-today {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    font-weight: 700;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    margin: 0 auto;
+}
+
+.dns-cal-today:hover {
+    background: var(--interactive-accent-hover);
+}
+
+.dns-cal-has-note {
+    text-decoration: underline;
+    text-decoration-color: var(--text-accent);
+    text-underline-offset: 2px;
+}
+
+/* ---- 待办列表 ---- */
+
+.dns-refresh-btn {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 0 6px;
+    cursor: pointer;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.dns-refresh-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.dns-todo-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.dns-todo-empty {
+    color: var(--text-faint);
+    font-size: 0.85em;
+    text-align: center;
+    padding: 12px 0;
+}
+
+.dns-todo-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.dns-todo-item:last-child {
+    border-bottom: none;
+}
+
+.dns-todo-checkbox {
+    flex-shrink: 0;
+    margin-top: 3px;
+    cursor: pointer;
+    accent-color: var(--interactive-accent);
+}
+
+.dns-todo-text {
+    flex: 1;
+    font-size: 0.85em;
+    cursor: pointer;
+    word-break: break-word;
+    color: var(--text-normal);
+}
+
+.dns-todo-text:hover {
+    color: var(--text-accent);
+}
+
+.dns-todo-source {
+    width: 100%;
+    font-size: 0.72em;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding-left: 22px;
+    word-break: break-all;
+}
+
+.dns-todo-source:hover {
+    color: var(--text-accent);
+}
