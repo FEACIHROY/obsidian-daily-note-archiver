@@ -46,6 +46,9 @@ module.exports = class DailyNoteArchiverPlugin extends Plugin {
             this.toggleSidebar();
         });
 
+        // 注册设置面板
+        this.addSettingTab(new ArchiverSettingTab(this.app, this));
+
         // 激活侧边栏
         this.app.workspace.onLayoutReady(() => {
             this.initSidebar();
@@ -475,9 +478,16 @@ class DailyNoteSidebarView extends ItemView {
             const lineStr = lines[todo.line];
             if (!lineStr) return;
 
-            // 替换 [ ] → [x]
-            const newLine = lineStr.replace(/\{\s*\}/, "[x]").replace(/\[\s\]/, "[x]");
-            if (newLine === lineStr) return; // 没变
+            let newLine;
+            if (/\[\s\]/.test(lineStr)) {
+                // 未完成 → 已完成
+                newLine = lineStr.replace(/\[\s\]/, "[x]");
+            } else if (/\[x\]/.test(lineStr)) {
+                // 已完成 → 未完成
+                newLine = lineStr.replace(/\[x\]/, "[ ]");
+            } else {
+                return; // 不是可切换的待办
+            }
 
             lines[todo.line] = newLine;
             await this.app.vault.modify(todo.file, lines.join("\n"));
@@ -494,18 +504,15 @@ class DailyNoteSidebarView extends ItemView {
         await leaf.openFile(file, { active: true });
         // 延迟等编辑器渲染后跳转到行
         setTimeout(() => {
-            const view = this.app.workspace.getActiveViewOfType(
-                this.app.workspace.getActiveViewOfType ? 
-                    Object.getPrototypeOf(this.app.workspace).constructor : null
-            );
-            // 更通用的方式
             try {
                 const editor = leaf.view?.editor;
                 if (editor) {
                     editor.setCursor({ line, ch: 0 });
                     editor.scrollIntoView({ from: { line, ch: 0 }, to: { line, ch: 0 } }, true);
                 }
-            } catch {}
+            } catch (e) {
+                console.warn("跳转到行失败：", e);
+            }
         }, 200);
     }
 }
