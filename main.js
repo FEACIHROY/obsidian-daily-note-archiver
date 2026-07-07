@@ -96,6 +96,17 @@ module.exports = class DailyNoteArchiverPlugin extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
+        // 实时刷新侧边栏（设置变更立即生效）
+        this.refreshSidebar();
+    }
+
+    refreshSidebar() {
+        const leaves = this.app.workspace.getLeavesOfType(SIDEBAR_VIEW_TYPE);
+        for (const leaf of leaves) {
+            if (leaf.view instanceof DailyNoteSidebarView) {
+                leaf.view.render();
+            }
+        }
     }
 
     // ---------------------------------------------------------
@@ -200,15 +211,15 @@ class DailyNoteSidebarView extends ItemView {
         this.render();
         // 每秒更新时钟
         this.clockInterval = setInterval(() => this.updateClock(), 1000);
-        // 文件变更时刷新待办
+        // 文件变更时刷新待办（带防重入标记）
         this.registerEvent(
-            this.app.vault.on("modify", () => this.refreshTodos())
+            this.app.vault.on("modify", () => this.scheduleRefreshTodos())
         );
         this.registerEvent(
-            this.app.vault.on("create", () => this.refreshTodos())
+            this.app.vault.on("create", () => this.scheduleRefreshTodos())
         );
         this.registerEvent(
-            this.app.vault.on("delete", () => this.refreshTodos())
+            this.app.vault.on("delete", () => this.scheduleRefreshTodos())
         );
     }
 
@@ -359,6 +370,15 @@ class DailyNoteSidebarView extends ItemView {
                 row = container.createEl("div", { cls: "dns-cal-row" });
             }
         }
+
+        // 补齐最后一行剩余的空格（避免 flex 拉伸歪掉）
+        const totalCells = firstDay + daysInMonth;
+        const remainder = totalCells % 7;
+        if (remainder !== 0) {
+            for (let i = remainder; i < 7; i++) {
+                row.createEl("span", { cls: "dns-cal-cell dns-cal-empty" });
+            }
+        }
     }
 
     async openDailyNote(dateStr) {
@@ -390,7 +410,8 @@ class DailyNoteSidebarView extends ItemView {
     }
 
     async refreshTodos() {
-        if (!this.todoListEl) return;
+        if (!this.todoListEl || this._refreshing) return;
+        this._refreshing = true;
         this.todoListEl.empty();
 
         const folder = this.plugin.settings.todoFolder;
@@ -442,6 +463,7 @@ class DailyNoteSidebarView extends ItemView {
                 cls: "dns-todo-empty",
                 text: "🎉 没有未完成的任务"
             });
+            this._refreshing = false;
             return;
         }
 
@@ -469,6 +491,14 @@ class DailyNoteSidebarView extends ItemView {
             const sourceEl = item.createEl("div", { cls: "dns-todo-source", text: `📎 ${todo.file.path}` });
             sourceEl.onclick = () => this.openFileAtLine(todo.file, todo.line);
         }
+
+        this._refreshing = false;
+    }
+
+    scheduleRefreshTodos() {
+        // 防重入 + 防并发：已有刷新在进行则跳过
+        if (this._refreshing || !this.todoListEl) return;
+        this.refreshTodos();
     }
 
     async toggleTodo(todo) {
@@ -490,9 +520,8 @@ class DailyNoteSidebarView extends ItemView {
             }
 
             lines[todo.line] = newLine;
+            // modify 会自动触发 vault.on("modify") 事件 → 刷新列表
             await this.app.vault.modify(todo.file, lines.join("\n"));
-            // 重新刷新列表
-            await this.refreshTodos();
         } catch (error) {
             console.error("❌ 切换待办失败：", error);
             new Notice("❌ 切换待办失败");
@@ -649,7 +678,7 @@ class ArchiverSettingTab extends PluginSettingTab {
         // ======== 侧边栏 ========
         containerEl.createEl("h3", { text: "📺 侧边栏设置" });
         containerEl.createEl("p", {
-            text: "右侧边栏的显示内容（修改后需重启 Obsidian 生效）",
+            text: "右侧边栏的显示内容（修改后实时生效）",
             attr: { style: "color: var(--text-muted); margin-bottom: 1em;" }
         });
 
