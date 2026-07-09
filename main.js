@@ -730,6 +730,7 @@ class DailyNoteSidebarView extends ItemView {
         const taskKey = todo.text.trim().toLowerCase();
 
         // 收集所有文件中的同任务记录
+        const entries = [];
         const entriesPromises = [];
         const foldersToScan = [dailyPath];
         if (historyPath) foldersToScan.push(historyPath);
@@ -809,7 +810,7 @@ class TaskTimelineModal extends Modal {
     onOpen() {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.addClass("dns-timeline-modal");
+        contentEl.classList.add("dns-timeline-modal");
 
         contentEl.createEl("h3", { text: `📊 任务时间轴: ${this.taskText}` });
 
