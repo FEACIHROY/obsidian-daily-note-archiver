@@ -805,6 +805,202 @@ class DailyNoteSidebarView extends ItemView {
 // ============================================================
 // 时间轴弹窗
 // ============================================================
+class ArchiverSettingTab extends PluginSettingTab {
+
+    constructor(app, plugin) {
+        super(app, plugin);
+        this.plugin = plugin;
+    }
+
+    display() {
+        const { containerEl } = this;
+        const settings = this.plugin.settings;
+
+        containerEl.empty();
+        containerEl.createEl("h2", { text: "📋 每日笔记归档器 — 设置" });
+        containerEl.createEl("p", {
+            text: "每次打开 Obsidian 时自动创建今日日记，并清理旧文件至历史记录文件夹。",
+            attr: { style: "color: var(--text-muted); margin-bottom: 2em;" }
+        });
+
+        // ======== 归档路径 ========
+        containerEl.createEl("h3", { text: "📁 归档路径" });
+
+        new Setting(containerEl)
+            .setName("日记文件夹路径")
+            .setDesc("存放每日日记的目录")
+            .addText(text => text
+                .setPlaceholder("日记/每日")
+                .setValue(settings.dailyPath)
+                .onChange(async val => { settings.dailyPath = val; await this.plugin.saveSettings(); })
+            );
+
+        new Setting(containerEl)
+            .setName("历史记录文件夹路径")
+            .setDesc("旧日记移入的目录")
+            .addText(text => text
+                .setPlaceholder("日记/每日/历史记录")
+                .setValue(settings.historyPath)
+                .onChange(async val => { settings.historyPath = val; await this.plugin.saveSettings(); })
+            );
+
+        // ======== 保留规则 ========
+        containerEl.createEl("h3", { text: "📌 保留规则" });
+
+        new Setting(containerEl)
+            .setName("保留文件数")
+            .addSlider(slider => slider
+                .setLimits(1, 60, 1)
+                .setValue(settings.keepCount)
+                .setDynamicTooltip()
+                .onChange(async val => { settings.keepCount = val; await this.plugin.saveSettings(); })
+            );
+
+        // ======== 日期格式 ========
+        containerEl.createEl("h3", { text: "📅 日期格式" });
+
+        new Setting(containerEl)
+            .setName("日期格式")
+            .setDesc("moment.js 格式，例如 YYYY-MM-DD / YYYYMMDD")
+            .addText(text => text
+                .setPlaceholder("YYYY-MM-DD")
+                .setValue(settings.dateFormat)
+                .onChange(async val => {
+                    if (!val.trim()) settings.dateFormat = DEFAULT_SETTINGS.dateFormat;
+                    else settings.dateFormat = val;
+                    await this.plugin.saveSettings();
+                    this.display();
+                })
+            );
+
+        const preview = moment().format(settings.dateFormat);
+        containerEl.createEl("p", {
+            text: `📎 预览：${preview}.md`,
+            attr: { style: "color: var(--text-accent); font-family: monospace; margin-left: 1em;" }
+        });
+
+        // ======== 日记模板 ========
+        containerEl.createEl("h3", { text: "📝 日记模板" });
+
+        new Setting(containerEl)
+            .setName("标题行")
+            .setDesc("支持 {{date}} 占位符")
+            .addText(text => text
+                .setPlaceholder("# {{date}}")
+                .setValue(settings.noteTitle)
+                .onChange(async val => { settings.noteTitle = val; await this.plugin.saveSettings(); })
+            );
+
+        new Setting(containerEl)
+            .setName("正文模板")
+            .setDesc("支持 {{date}} 占位符")
+            .addTextArea(text => text
+                .setPlaceholder("## 📝 今日任务\n- [ ] \n\n## 💭 笔记")
+                .setValue(settings.noteTemplate)
+                .onChange(async val => { settings.noteTemplate = val; await this.plugin.saveSettings(); })
+            );
+
+        const todayStr = moment().format(settings.dateFormat);
+        const tTitle = settings.noteTitle.replace(/\{\{date\}\}/g, todayStr);
+        const tBody  = settings.noteTemplate.replace(/\{\{date\}\}/g, todayStr);
+        containerEl.createEl("p", { text: "📄 预览：", attr: { style: "font-weight: bold; margin-top: 1em; margin-left: 1em;" } });
+        containerEl.createEl("pre", {
+            text: tTitle + "\n" + tBody,
+            attr: { style: "margin-left:1em;padding:0.8em;background:var(--background-secondary);border-radius:6px;font-size:0.9em;white-space:pre-wrap;" }
+        });
+
+        // ======== 归档行为 ========
+        containerEl.createEl("h3", { text: "⚙️ 归档行为" });
+
+        new Setting(containerEl)
+            .setName("启动时自动创建今日日记")
+            .addToggle(toggle => toggle.setValue(settings.autoCreate)
+                .onChange(async val => { settings.autoCreate = val; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName("启动时自动归档旧文件")
+            .addToggle(toggle => toggle.setValue(settings.autoArchive)
+                .onChange(async val => { settings.autoArchive = val; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName("启动时附带之前未完成的任务")
+            .setDesc("创建今日日记时，自动将前几天未完成的任务（未取消 [-] 的）添加到今日任务列表")
+            .addToggle(toggle => toggle.setValue(settings.autoCarryTasks)
+                .onChange(async val => { settings.autoCarryTasks = val; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName("立即执行一次")
+            .addButton(btn => btn.setButtonText("▶ 立即执行").setCta()
+                .onClick(async () => {
+                    btn.setDisabled(true); btn.setButtonText("⏳ …");
+                    await this.plugin.runNow();
+                    btn.setButtonText("✅"); setTimeout(() => { btn.setDisabled(false); btn.setButtonText("▶ 立即执行"); }, 2000);
+                }));
+
+        // ======== 侧边栏 ========
+        containerEl.createEl("h3", { text: "📺 侧边栏设置" });
+        containerEl.createEl("p", {
+            text: "右侧边栏的显示内容（修改后实时生效）",
+            attr: { style: "color: var(--text-muted); margin-bottom: 1em;" }
+        });
+
+        new Setting(containerEl)
+            .setName("显示时钟 & 下班倒计时")
+            .addToggle(toggle => toggle.setValue(settings.showClock)
+                .onChange(async val => { settings.showClock = val; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName("显示日历")
+            .addToggle(toggle => toggle.setValue(settings.showCalendar)
+                .onChange(async val => { settings.showCalendar = val; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName("显示未完成任务")
+            .addToggle(toggle => toggle.setValue(settings.showTodos)
+                .onChange(async val => { settings.showTodos = val; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName("下班时间")
+            .setDesc("HH:mm 格式，用于倒计时")
+            .addText(text => text
+                .setPlaceholder("18:00")
+                .setValue(settings.workEndTime)
+                .onChange(async val => {
+                    if (/^\d{1,2}:\d{2}$/.test(val)) {
+                        settings.workEndTime = val;
+                    } else {
+                        settings.workEndTime = DEFAULT_SETTINGS.workEndTime;
+                    }
+                    await this.plugin.saveSettings();
+                })
+            );
+
+        new Setting(containerEl)
+            .setName("待办扫描文件夹")
+            .setDesc("扫描此文件夹下所有 md 文件中的未完成任务")
+            .addText(text => text
+                .setPlaceholder("日记/每日")
+                .setValue(settings.todoFolder)
+                .onChange(async val => { settings.todoFolder = val; await this.plugin.saveSettings(); })
+            );
+
+        // ======== 重置 ========
+        containerEl.createEl("hr", { attr: { style: "margin: 2em 0 1em;" } });
+
+        new Setting(containerEl)
+            .setName("重置所有设置为默认值")
+            .addButton(btn => btn.setButtonText("重置为默认").setWarning()
+                .onClick(async () => {
+                    this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
+                    await this.plugin.saveSettings();
+                    this.display();
+                    new Notice("已重置");
+                })
+            );
+    }
+}
+
+
 class TaskTimelineModal extends Modal {
 
     constructor(app, taskText, entries) {
