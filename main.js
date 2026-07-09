@@ -736,7 +736,7 @@ class DailyNoteSidebarView extends ItemView {
         const taskKey = todo.text.trim().toLowerCase();
 
         // 收集所有文件中的同任务记录
-        const entries = [];
+        let entries = [];
         const entriesPromises = [];
         const foldersToScan = [dailyPath];
         if (historyPath) foldersToScan.push(historyPath);
@@ -778,6 +778,11 @@ class DailyNoteSidebarView extends ItemView {
 
         await Promise.all(entriesPromises);
         entries.sort((a, b) => a.date.localeCompare(b.date));
+
+        // 只保留最近30条
+        if (entries.length > 30) {
+            entries = entries.slice(entries.length - 30);
+        }
 
         // 弹窗展示
         const modal = new TaskTimelineModal(this.app, todo.text, entries);

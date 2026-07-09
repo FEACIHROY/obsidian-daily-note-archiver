@@ -1,6 +1,6 @@
-# 每日笔记归档器（Daily Note Archiver）
+# 每日任务（Daily Tasks）
 
-一个 Obsidian 插件，自动管理日记 + 右侧边栏实用工具。
+一个 Obsidian 插件，右侧边栏任务管理工具 — 时钟/倒计时/日历/待办清单 + DDL + 时间轴。
 
 ## 功能
 
@@ -107,6 +107,11 @@ app.plugins.plugins["daily-note-archiver"].runNow()
 如果你之前直接修改过 `main.js` 中的默认值，安装新版后请通过设置面板重新配置——设置面板的修改会存入 `data.json`，优先级高于代码中的默认值。
 
 ## 更新记录
+
+### v1.4.1
+
+- 🐛 修复：插件加载失败（ArchiverSettingTab 类被误删）
+- 🐛 修复：时间轴只显示最近 30 条记录
 
 ### v1.4.0
 
