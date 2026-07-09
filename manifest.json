@@ -1,7 +1,7 @@
 {
 	"id": "daily-note-archiver",
 	"name": "每日笔记归档器",
-	"version": "1.4.0",
+	"version": "1.4.1",
 	"minAppVersion": "0.15.0",
 	"description": "日记归档 + 右侧边栏（时钟/倒计时/日历/待办清单 + DDL）",
 	"author": "Reasonix",

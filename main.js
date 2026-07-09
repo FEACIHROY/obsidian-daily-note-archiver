@@ -36,25 +36,31 @@ module.exports = class DailyNoteArchiverPlugin extends Plugin {
     // 生命周期
     // ---------------------------------------------------------
     async onload() {
-        await this.loadSettings();
-        console.log("🔄 [每日笔记归档器] 插件加载完成");
+        try {
+            await this.loadSettings();
 
-        // 注册侧边栏视图
-        this.registerView(SIDEBAR_VIEW_TYPE, (leaf) => new DailyNoteSidebarView(leaf, this));
+            // 注册侧边栏视图
+            this.registerView(SIDEBAR_VIEW_TYPE, (leaf) => new DailyNoteSidebarView(leaf, this));
 
-        // 添加侧边栏切换图标
-        this.addRibbonIcon("calendar", "每日笔记", () => {
-            this.toggleSidebar();
-        });
+            // 添加侧边栏切换图标
+            this.addRibbonIcon("calendar", "每日笔记", () => {
+                this.toggleSidebar();
+            });
 
-        // 注册设置面板
-        this.addSettingTab(new ArchiverSettingTab(this.app, this));
+            // 注册设置面板
+            this.addSettingTab(new ArchiverSettingTab(this.app, this));
 
-        // 激活侧边栏
-        this.app.workspace.onLayoutReady(() => {
-            this.initSidebar();
-            this.runDailyTasks();
-        });
+            // 激活侧边栏
+            this.app.workspace.onLayoutReady(() => {
+                this.initSidebar();
+                this.runDailyTasks();
+            });
+
+            console.log("✅ [每日笔记归档器] 插件加载完成");
+        } catch (error) {
+            console.error("❌ [每日笔记归档器] 插件加载失败:", error);
+            new Notice("❌ 每日笔记归档器加载失败: " + error.message);
+        }
     }
 
     async onunload() {
