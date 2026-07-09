@@ -253,6 +253,60 @@
     color: var(--text-error);
 }
 
+.dns-todo-timeline {
+    font-size: 0.75em;
+    cursor: pointer;
+    color: var(--text-faint);
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 4px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dns-todo-timeline:hover {
+    background: var(--background-modifier-hover);
+    color: var(--interactive-accent);
+}
+
+/* ---- 时间轴弹窗 ---- */
+
+.dns-timeline-modal h3 {
+    margin: 0 0 12px 0;
+    font-size: 1.1em;
+}
+
+.dns-timeline-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.dns-timeline-item {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border-left: 3px solid var(--interactive-accent);
+    margin-bottom: 4px;
+    border-radius: 0 4px 4px 0;
+    transition: background 0.15s;
+    gap: 8px;
+}
+
+.dns-timeline-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.dns-timeline-date {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.dns-timeline-status {
+    font-size: 0.85em;
+    color: var(--text-normal);
+}
+
 .dns-todo-ddl-empty {
     color: var(--text-faint);
     font-style: italic;

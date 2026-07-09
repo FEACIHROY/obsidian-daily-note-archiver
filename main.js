@@ -1,4 +1,4 @@
-const { Plugin, PluginSettingTab, Setting, Notice, ItemView, moment } = require('obsidian');
+const { Plugin, PluginSettingTab, Setting, Notice, ItemView, Modal, moment } = require('obsidian');
 
 // ============================================================
 // 常量
@@ -521,6 +521,12 @@ class DailyNoteSidebarView extends ItemView {
                     const isChecked = match[2] === "x";
                     // 跳过已取消的（带 ~~text~~）
                     if (taskText.trim().startsWith("~~")) continue;
+                    // 提取末尾的完成时间： ✅ YYYY-MM-DD HH:mm
+                    const doneMatch = taskText.match(/✅\s*(\d{4}-\d{2}-\d{2}\s*\d{2}:\d{2})\s*$/);
+                    if (doneMatch) {
+                        taskText = taskText.slice(0, -doneMatch[0].length).trim();
+                    }
+
                     // 提取末尾的 DDL： 📅 YYYY-MM-DD
                     let ddl = null;
                     const ddlMatch = taskText.match(/📅\s*(\d{4}-\d{2}-\d{2})\s*$/);
@@ -591,6 +597,10 @@ class DailyNoteSidebarView extends ItemView {
             const cancelEl = ddlRow.createEl("span", { cls: "dns-todo-cancel", text: "⊘ 取消" });
             cancelEl.onclick = () => this.cancelTodo(todo);
 
+            // 时间轴按钮
+            const timelineEl = ddlRow.createEl("span", { cls: "dns-todo-timeline", text: "📊 时间轴" });
+            timelineEl.onclick = () => this.showTodoTimeline(todo);
+
             // 来源文件名
             const sourceEl = item.createEl("div", { cls: "dns-todo-source", text: `📎 ${todo.file.path}` });
             sourceEl.onclick = () => this.openFileAtLine(todo.file, todo.line);
@@ -614,13 +624,16 @@ class DailyNoteSidebarView extends ItemView {
 
             let newLine;
             if (/\[\s\]/.test(lineStr)) {
-                // 未完成 → 已完成
-                newLine = lineStr.replace(/\[\s\]/, "[x]");
+                // 未完成 → 已完成，标注完成时间
+                const now = moment().format("YYYY-MM-DD HH:mm");
+                // 去掉旧的完成标记（如果有）再追加新的
+                let base = lineStr.replace(/\s*✅\s*\d{4}-\d{2}-\d{2}\s*\d{2}:\d{2}/, "");
+                newLine = base.replace(/\[\s\]/, "[x]") + ` ✅ ${now}`;
             } else if (/\[x\]/.test(lineStr)) {
-                // 已完成 → 未完成
-                newLine = lineStr.replace(/\[x\]/, "[ ]");
+                // 已完成 → 未完成，去掉完成标记
+                newLine = lineStr.replace(/\[x\]/, "[ ]").replace(/\s*✅\s*\d{4}-\d{2}-\d{2}\s*\d{2}:\d{2}/, "");
             } else {
-                return; // 不是可切换的待办
+                return;
             }
 
             lines[todo.line] = newLine;
@@ -711,6 +724,59 @@ class DailyNoteSidebarView extends ItemView {
         }
     }
 
+    async showTodoTimeline(todo) {
+        const dailyPath = this.plugin.settings.dailyPath;
+        const historyPath = this.plugin.settings.historyPath;
+        const taskKey = todo.text.trim().toLowerCase();
+
+        // 收集所有文件中的同任务记录
+        const entriesPromises = [];
+        const foldersToScan = [dailyPath];
+        if (historyPath) foldersToScan.push(historyPath);
+
+        for (const folder of foldersToScan) {
+            if (!this.app.vault.getAbstractFileByPath(folder)) continue;
+            const files = this.app.vault.getMarkdownFiles()
+                .filter(f => f.path.startsWith(folder + "/") && f.extension === "md")
+                .sort((a, b) => a.name.localeCompare(b.name));
+            for (const file of files) {
+                entriesPromises.push(
+                    (async () => {
+                        const content = await this.app.vault.cachedRead(file);
+                        const lines = content.split("\n");
+                        for (let i = 0; i < lines.length; i++) {
+                            const line = lines[i];
+                            const match = line.match(/^(\s*)[-*]\s+\[([ x-])\]\s+(.+)$/);
+                            if (!match) continue;
+                            const text = match[3].replace(/✅.*$/, "").replace(/📅.*$/, "").trim().toLowerCase();
+                            if (text === taskKey) {
+                                const dateStr = file.name.replace(/\.md$/, "");
+                                let status = "⬜ 未完成";
+                                if (match[2] === "x") {
+                                    const doneTime = match[3].match(/✅\s*(\d{4}-\d{2}-\d{2}\s*\d{2}:\d{2})/);
+                                    status = doneTime ? `✅ 已完成 ${doneTime[1]}` : "✅ 已完成";
+                                } else if (match[2] === "-") {
+                                    status = "⊘ 已取消";
+                                } else if (match[3].includes("~~")) {
+                                    status = "⊘ 已取消";
+                                }
+                                // 检查是否已取消（带 ~~）
+                                entries.push({ date: dateStr, status, line: match[0].trim(), file, lineNum: i });
+                            }
+                        }
+                    })()
+                );
+            }
+        }
+
+        await Promise.all(entriesPromises);
+        entries.sort((a, b) => a.date.localeCompare(b.date));
+
+        // 弹窗展示
+        const modal = new TaskTimelineModal(this.app, todo.text, entries);
+        modal.open();
+    }
+
     async openFileAtLine(file, line) {
         const leaf = this.app.workspace.getLeaf(false);
         await leaf.openFile(file, { active: true });
@@ -730,199 +796,51 @@ class DailyNoteSidebarView extends ItemView {
 }
 
 // ============================================================
-// 设置面板
+// 时间轴弹窗
 // ============================================================
-class ArchiverSettingTab extends PluginSettingTab {
+class TaskTimelineModal extends Modal {
 
-    constructor(app, plugin) {
-        super(app, plugin);
-        this.plugin = plugin;
+    constructor(app, taskText, entries) {
+        super(app);
+        this.taskText = taskText;
+        this.entries = entries;
     }
 
-    display() {
-        const { containerEl } = this;
-        const settings = this.plugin.settings;
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass("dns-timeline-modal");
 
-        containerEl.empty();
-        containerEl.createEl("h2", { text: "📋 每日笔记归档器 — 设置" });
-        containerEl.createEl("p", {
-            text: "每次打开 Obsidian 时自动创建今日日记，并清理旧文件至历史记录文件夹。",
-            attr: { style: "color: var(--text-muted); margin-bottom: 2em;" }
-        });
+        contentEl.createEl("h3", { text: `📊 任务时间轴: ${this.taskText}` });
 
-        // ======== 归档路径 ========
-        containerEl.createEl("h3", { text: "📁 归档路径" });
+        if (this.entries.length === 0) {
+            contentEl.createEl("p", { text: "未找到相关记录" });
+            return;
+        }
 
-        new Setting(containerEl)
-            .setName("日记文件夹路径")
-            .setDesc("存放每日日记的目录")
-            .addText(text => text
-                .setPlaceholder("日记/每日")
-                .setValue(settings.dailyPath)
-                .onChange(async val => { settings.dailyPath = val; await this.plugin.saveSettings(); })
-            );
+        const list = contentEl.createEl("div", { cls: "dns-timeline-list" });
 
-        new Setting(containerEl)
-            .setName("历史记录文件夹路径")
-            .setDesc("旧日记移入的目录")
-            .addText(text => text
-                .setPlaceholder("日记/每日/历史记录")
-                .setValue(settings.historyPath)
-                .onChange(async val => { settings.historyPath = val; await this.plugin.saveSettings(); })
-            );
+        for (const entry of this.entries) {
+            const item = list.createDiv({ cls: "dns-timeline-item" });
 
-        // ======== 保留规则 ========
-        containerEl.createEl("h3", { text: "📌 保留规则" });
+            // 日期
+            const dateEl = item.createEl("span", { cls: "dns-timeline-date", text: `📅 ${entry.date}` });
 
-        new Setting(containerEl)
-            .setName("保留文件数")
-            .addSlider(slider => slider
-                .setLimits(1, 60, 1)
-                .setValue(settings.keepCount)
-                .setDynamicTooltip()
-                .onChange(async val => { settings.keepCount = val; await this.plugin.saveSettings(); })
-            );
+            // 状态
+            const statusEl = item.createEl("span", { cls: "dns-timeline-status", text: `  ${entry.status}` });
 
-        // ======== 日期格式 ========
-        containerEl.createEl("h3", { text: "📅 日期格式" });
+            // 点击跳转
+            item.onclick = () => {
+                const leaf = this.app.workspace.getLeaf(false);
+                leaf.openFile(entry.file, { active: true });
+                this.close();
+            };
+            item.style.cursor = "pointer";
+        }
+    }
 
-        new Setting(containerEl)
-            .setName("日期格式")
-            .setDesc("moment.js 格式，例如 YYYY-MM-DD / YYYYMMDD")
-            .addText(text => text
-                .setPlaceholder("YYYY-MM-DD")
-                .setValue(settings.dateFormat)
-                .onChange(async val => {
-                    if (!val.trim()) settings.dateFormat = DEFAULT_SETTINGS.dateFormat;
-                    else settings.dateFormat = val;
-                    await this.plugin.saveSettings();
-                    this.display();
-                })
-            );
-
-        const preview = moment().format(settings.dateFormat);
-        containerEl.createEl("p", {
-            text: `📎 预览：${preview}.md`,
-            attr: { style: "color: var(--text-accent); font-family: monospace; margin-left: 1em;" }
-        });
-
-        // ======== 日记模板 ========
-        containerEl.createEl("h3", { text: "📝 日记模板" });
-
-        new Setting(containerEl)
-            .setName("标题行")
-            .setDesc("支持 {{date}} 占位符")
-            .addText(text => text
-                .setPlaceholder("# {{date}}")
-                .setValue(settings.noteTitle)
-                .onChange(async val => { settings.noteTitle = val; await this.plugin.saveSettings(); })
-            );
-
-        new Setting(containerEl)
-            .setName("正文模板")
-            .setDesc("支持 {{date}} 占位符")
-            .addTextArea(text => text
-                .setPlaceholder("## 📝 今日任务\n- [ ] \n\n## 💭 笔记")
-                .setValue(settings.noteTemplate)
-                .onChange(async val => { settings.noteTemplate = val; await this.plugin.saveSettings(); })
-            );
-
-        const todayStr = moment().format(settings.dateFormat);
-        const tTitle = settings.noteTitle.replace(/\{\{date\}\}/g, todayStr);
-        const tBody  = settings.noteTemplate.replace(/\{\{date\}\}/g, todayStr);
-        containerEl.createEl("p", { text: "📄 预览：", attr: { style: "font-weight: bold; margin-top: 1em; margin-left: 1em;" } });
-        containerEl.createEl("pre", {
-            text: tTitle + "\n" + tBody,
-            attr: { style: "margin-left:1em;padding:0.8em;background:var(--background-secondary);border-radius:6px;font-size:0.9em;white-space:pre-wrap;" }
-        });
-
-        // ======== 归档行为 ========
-        containerEl.createEl("h3", { text: "⚙️ 归档行为" });
-
-        new Setting(containerEl)
-            .setName("启动时自动创建今日日记")
-            .addToggle(toggle => toggle.setValue(settings.autoCreate)
-                .onChange(async val => { settings.autoCreate = val; await this.plugin.saveSettings(); }));
-
-        new Setting(containerEl)
-            .setName("启动时自动归档旧文件")
-            .addToggle(toggle => toggle.setValue(settings.autoArchive)
-                .onChange(async val => { settings.autoArchive = val; await this.plugin.saveSettings(); }));
-
-        new Setting(containerEl)
-            .setName("启动时附带之前未完成的任务")
-            .setDesc("创建今日日记时，自动将前几天未完成的任务（未取消 [-] 的）添加到今日任务列表")
-            .addToggle(toggle => toggle.setValue(settings.autoCarryTasks)
-                .onChange(async val => { settings.autoCarryTasks = val; await this.plugin.saveSettings(); }));
-
-        new Setting(containerEl)
-            .setName("立即执行一次")
-            .addButton(btn => btn.setButtonText("▶ 立即执行").setCta()
-                .onClick(async () => {
-                    btn.setDisabled(true); btn.setButtonText("⏳ …");
-                    await this.plugin.runNow();
-                    btn.setButtonText("✅"); setTimeout(() => { btn.setDisabled(false); btn.setButtonText("▶ 立即执行"); }, 2000);
-                }));
-
-        // ======== 侧边栏 ========
-        containerEl.createEl("h3", { text: "📺 侧边栏设置" });
-        containerEl.createEl("p", {
-            text: "右侧边栏的显示内容（修改后实时生效）",
-            attr: { style: "color: var(--text-muted); margin-bottom: 1em;" }
-        });
-
-        new Setting(containerEl)
-            .setName("显示时钟 & 下班倒计时")
-            .addToggle(toggle => toggle.setValue(settings.showClock)
-                .onChange(async val => { settings.showClock = val; await this.plugin.saveSettings(); }));
-
-        new Setting(containerEl)
-            .setName("显示日历")
-            .addToggle(toggle => toggle.setValue(settings.showCalendar)
-                .onChange(async val => { settings.showCalendar = val; await this.plugin.saveSettings(); }));
-
-        new Setting(containerEl)
-            .setName("显示未完成任务")
-            .addToggle(toggle => toggle.setValue(settings.showTodos)
-                .onChange(async val => { settings.showTodos = val; await this.plugin.saveSettings(); }));
-
-        new Setting(containerEl)
-            .setName("下班时间")
-            .setDesc("HH:mm 格式，用于倒计时")
-            .addText(text => text
-                .setPlaceholder("18:00")
-                .setValue(settings.workEndTime)
-                .onChange(async val => {
-                    if (/^\d{1,2}:\d{2}$/.test(val)) {
-                        settings.workEndTime = val;
-                    } else {
-                        settings.workEndTime = DEFAULT_SETTINGS.workEndTime;
-                    }
-                    await this.plugin.saveSettings();
-                })
-            );
-
-        new Setting(containerEl)
-            .setName("待办扫描文件夹")
-            .setDesc("扫描此文件夹下所有 md 文件中的未完成任务")
-            .addText(text => text
-                .setPlaceholder("日记/每日")
-                .setValue(settings.todoFolder)
-                .onChange(async val => { settings.todoFolder = val; await this.plugin.saveSettings(); })
-            );
-
-        // ======== 重置 ========
-        containerEl.createEl("hr", { attr: { style: "margin: 2em 0 1em;" } });
-
-        new Setting(containerEl)
-            .setName("重置所有设置为默认值")
-            .addButton(btn => btn.setButtonText("重置为默认").setWarning()
-                .onClick(async () => {
-                    this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
-                    await this.plugin.saveSettings();
-                    this.display();
-                    new Notice("已重置");
-                })
-            );
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
     }
 }
