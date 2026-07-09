@@ -238,6 +238,21 @@
     background: var(--background-modifier-hover);
 }
 
+.dns-todo-cancel {
+    font-size: 0.75em;
+    cursor: pointer;
+    color: var(--text-faint);
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 6px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dns-todo-cancel:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-error);
+}
+
 .dns-todo-ddl-empty {
     color: var(--text-faint);
     font-style: italic;

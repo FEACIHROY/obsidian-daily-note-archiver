@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS = {
     // —— 侧边栏 ——
     workEndTime:   "18:00",
     todoFolder:    "",
+    autoCarryTasks: true,
     showClock:     true,
     showCalendar:  true,
     showTodos:     true,
@@ -137,14 +138,57 @@ module.exports = class DailyNoteArchiverPlugin extends Plugin {
             }
 
             const titleLine = this.settings.noteTitle.replace(/\{\{date\}\}/g, today);
-            const body      = this.settings.noteTemplate.replace(/\{\{date\}\}/g, today);
+            let body = this.settings.noteTemplate.replace(/\{\{date\}\}/g, today);
+
+            // 自动附带之前未完成的任务
+            if (this.settings.autoCarryTasks) {
+                const carried = await this.collectUnfinishedTasks(dirPath);
+                if (carried.length > 0) {
+                    body += "\n" + "## 🔄 未完成任务" + "\n" + carried.join("\n") + "\n";
+                }
+            }
+
             await this.app.vault.create(filePath, titleLine + "\n" + body);
 
             console.log(`📄 [每日笔记归档器] 已创建：${fileName}`);
-            new Notice(`📝 已创建今日日记：${fileName}`);
+            if (this.settings.autoCarryTasks) {
+                new Notice(`📝 已创建今日日记，并附带之前未完成的任务`);
+            } else {
+                new Notice(`📝 已创建今日日记：${fileName}`);
+            }
         } catch (error) {
             console.error("❌ [每日笔记归档器] 创建日记失败：", error);
         }
+    }
+
+    // ---------------------------------------------------------
+    // 收集之前未完成的任务（排除已取消 [-] 的）
+    // ---------------------------------------------------------
+    async collectUnfinishedTasks(dailyPath) {
+        const tasks = [];
+        const files = this.app.vault.getMarkdownFiles()
+            .filter(f => f.path.startsWith(dailyPath + "/") && f.extension === "md")
+            .sort((a, b) => b.name.localeCompare(a.name)); // 最新的在前
+
+        // 跳过今日文件
+        const todayFileName = moment().format(this.settings.dateFormat) + ".md";
+        for (const file of files) {
+            if (file.name === todayFileName) continue;
+            const content = await this.app.vault.cachedRead(file);
+            const lines = content.split("\n");
+            for (const line of lines) {
+                // 匹配 - [ ] 未完成且不是已取消 [-]
+                const match = line.match(/^\s*[-*]\s+\[\s\]\s+(.+)$/);
+                if (match) {
+                    const text = match[1].trim();
+                    // 跳过已取消（带 ~~text~~ 标记）和纯空
+                    if (!text || text.startsWith("~~")) continue;
+                    tasks.push("- [ ] " + text);
+                }
+            }
+        }
+        // 去重
+        return [...new Set(tasks)];
     }
 
     // ---------------------------------------------------------
@@ -459,17 +503,24 @@ class DailyNoteSidebarView extends ItemView {
         const files = this.app.vault.getMarkdownFiles()
             .filter(f => f.path.startsWith(folder + "/") && f.extension === "md");
 
-        // 解析所有未完成任务
+        // 按文件名降序（最新的在前），用于去重时保留最新版本
+        files.sort((a, b) => b.name.localeCompare(a.name));
+
+        // 解析所有未完成任务（按任务文本去重，保留最新文件中的那个）
         const todos = [];
+        const seenTasks = new Set();
         for (const file of files) {
             const content = await this.app.vault.cachedRead(file);
             const lines = content.split("\n");
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                // 匹配 - [ ] 或 * [ ]（未勾选）
-                const match = line.match(/^(\s*)[-*]\s+\[\s\]\s+(.+)$/);
+                // 匹配 - [ ] 未完成 或 - [x] 已完成
+                const match = line.match(/^(\s*)[-*]\s+\[([ x])\]\s+(.+)$/);
                 if (match) {
-                    let taskText = match[2];
+                    let taskText = match[3];
+                    const isChecked = match[2] === "x";
+                    // 跳过已取消的（带 ~~text~~）
+                    if (taskText.trim().startsWith("~~")) continue;
                     // 提取末尾的 DDL： 📅 YYYY-MM-DD
                     let ddl = null;
                     const ddlMatch = taskText.match(/📅\s*(\d{4}-\d{2}-\d{2})\s*$/);
@@ -477,6 +528,14 @@ class DailyNoteSidebarView extends ItemView {
                         ddl = ddlMatch[1];
                         taskText = taskText.slice(0, -ddlMatch[0].length).trim();
                     }
+                    // 去重：已完成的任务也加入 seenTasks，防止旧笔记中同任务冒出
+                    const dedupKey = taskText.trim().toLowerCase();
+                    if (seenTasks.has(dedupKey)) continue;
+                    seenTasks.add(dedupKey);
+
+                    // 已完成的不展示
+                    if (isChecked) continue;
+
                     todos.push({
                         file: file,
                         line: i,
@@ -519,7 +578,7 @@ class DailyNoteSidebarView extends ItemView {
             const textEl = item.createEl("span", { cls: "dns-todo-text", text: todo.text });
             textEl.onclick = () => this.openFileAtLine(todo.file, todo.line);
 
-            // DDL 显示 + 日历按钮
+            // DDL 显示 + 日历按钮 + 取消标记
             const ddlRow = item.createDiv({ cls: "dns-todo-ddl-row" });
 
             const ddlEl = ddlRow.createEl("span", {
@@ -527,6 +586,10 @@ class DailyNoteSidebarView extends ItemView {
                 text: todo.ddl ? `📅 ${todo.ddl}` : "设置截止日"
             });
             ddlEl.onclick = () => this.pickDateForTodo(todo);
+
+            // 取消标记按钮
+            const cancelEl = ddlRow.createEl("span", { cls: "dns-todo-cancel", text: "⊘ 取消" });
+            cancelEl.onclick = () => this.cancelTodo(todo);
 
             // 来源文件名
             const sourceEl = item.createEl("div", { cls: "dns-todo-source", text: `📎 ${todo.file.path}` });
@@ -616,6 +679,35 @@ class DailyNoteSidebarView extends ItemView {
         } catch (error) {
             console.error("❌ 设置 DDL 失败：", error);
             new Notice("❌ 设置截止日失败");
+        }
+    }
+
+    async cancelTodo(todo) {
+        try {
+            const content = await this.app.vault.read(todo.file);
+            const lines = content.split("\n");
+            const lineStr = lines[todo.line];
+            if (!lineStr) return;
+
+            // 检查是否已取消（~~text~~）
+            const isCanceled = /~~(.+)~~/.test(lineStr);
+
+            let newLine;
+            if (isCanceled) {
+                // 取消取消标记
+                newLine = lineStr.replace(/~~(.+)~~/g, "$1");
+            } else {
+                // 标记为已取消（在任务文本外包裹 ~~ ~~）
+                const match = lineStr.match(/^(\s*[-*]\s+\[\s\]\s+)(.+)$/);
+                if (!match) return;
+                newLine = match[1] + "~~" + match[2].trim() + "~~";
+            }
+
+            lines[todo.line] = newLine;
+            await this.app.vault.modify(todo.file, lines.join("\n"));
+        } catch (error) {
+            console.error("❌ 取消标记失败：", error);
+            new Notice("❌ 取消标记失败");
         }
     }
 
@@ -756,6 +848,12 @@ class ArchiverSettingTab extends PluginSettingTab {
             .setName("启动时自动归档旧文件")
             .addToggle(toggle => toggle.setValue(settings.autoArchive)
                 .onChange(async val => { settings.autoArchive = val; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName("启动时附带之前未完成的任务")
+            .setDesc("创建今日日记时，自动将前几天未完成的任务（未取消 [-] 的）添加到今日任务列表")
+            .addToggle(toggle => toggle.setValue(settings.autoCarryTasks)
+                .onChange(async val => { settings.autoCarryTasks = val; await this.plugin.saveSettings(); }));
 
         new Setting(containerEl)
             .setName("立即执行一次")
